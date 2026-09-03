@@ -1,0 +1,49 @@
+name: Live draft context mirror
+
+on:
+  workflow_dispatch:
+    inputs:
+      duration_minutes:
+        description: Minutes to keep the mirror running
+        required: false
+        default: "350"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: live-draft-context-mirror
+  cancel-in-progress: true
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - name: Refresh public issue every 15 seconds
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE_NUMBER: "1"
+          SOURCE_URL: https://sleeper-draft-copilot-2026.playadru182.workers.dev/api/context.txt
+          DURATION_MINUTES: ${{ inputs.duration_minutes }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          end_epoch=$(( $(date +%s) + DURATION_MINUTES * 60 ))
+          while [ "$(date +%s)" -lt "$end_epoch" ]; do
+            refresh="$(date +%s)"
+            if curl --fail --silent --show-error --location --max-time 20 --retry 2 "${SOURCE_URL}?refresh=${refresh}" > context.txt; then
+              {
+                printf '%s\n' '# Live Sleeper Draft Context'
+                printf '%s\n\n' '_Public read-only mirror. Refreshed from Sleeper every 15 seconds while this workflow is running._'
+                printf '%s\n' '```text'
+                cat context.txt
+                printf '%s\n' '```'
+                printf '\n_Last GitHub mirror update: %s UTC_\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+              } > issue-body.md
+              gh issue edit "$ISSUE_NUMBER" --repo "$GH_REPO" --body-file issue-body.md
+            fi
+            sleep 15
+          done
